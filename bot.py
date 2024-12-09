@@ -1,11 +1,13 @@
 import os
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
 from gtts import gTTS
 from googletrans import Translator
 from dotenv import load_dotenv
-from aiogram.filters import Command
+from keyboards import main_menu, links_menu, dynamic_button, dynamic_options
 
 # Загрузка токена из файла .env
 load_dotenv()
@@ -16,26 +18,51 @@ if not API_TOKEN:
 
 # Инициализация бота и диспетчера
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
-
-# Создаем папку для фотографий, если она отсутствует
-os.makedirs("img", exist_ok=True)
+dp = Dispatcher(storage=MemoryStorage())
 
 # Инициализация переводчика
 translator = Translator()
 
+# Создаем папку для фотографий
+os.makedirs("img", exist_ok=True)
 
 # Обработчик команды /start
 @dp.message(Command("start"))
 async def send_welcome(message: Message):
     await message.answer(
-        "Привет! Я бот с несколькими функциями:\n"
-        "1️⃣ Сохраняю фотографии.\n"
-        "2️⃣ Генерирую голосовые сообщения из текста.\n"
-        "3️⃣ Перевожу текст на английский язык.\n\n"
-        "Используй команду /help для списка возможностей!"
+        "Добро пожаловать! Выберите действие из меню:",
+        reply_markup=main_menu()
     )
 
+# Обработка кнопок "Привет" и "Пока"
+@dp.message(F.text == "Привет")
+async def greet_user(message: Message):
+    await message.answer(f"Привет, {message.from_user.first_name}!")
+
+@dp.message(F.text == "Пока")
+async def goodbye_user(message: Message):
+    await message.answer(f"До свидания, {message.from_user.first_name}!")
+
+# Обработчик команды /links
+@dp.message(Command("links"))
+async def send_links(message: Message):
+    await message.answer("Выберите ссылку:", reply_markup=links_menu())
+
+# Обработчик команды /dynamic
+@dp.message(Command("dynamic"))
+async def show_dynamic(message: Message):
+    await message.answer("Выберите опцию:", reply_markup=dynamic_button())
+
+# Обработка нажатия на кнопку "Показать больше"
+@dp.callback_query(F.data == "show_more")
+async def show_more_options(callback: CallbackQuery):
+    await callback.message.edit_reply_markup(reply_markup=dynamic_options())
+
+# Обработка нажатий на кнопки "Опция 1" и "Опция 2"
+@dp.callback_query(F.data.in_({"option_1", "option_2"}))
+async def handle_option(callback: CallbackQuery):
+    option_text = "Опция 1" if callback.data == "option_1" else "Опция 2"
+    await callback.message.answer(f"Вы выбрали: {option_text}")
 
 # Обработчик команды /help
 @dp.message(Command("help"))
@@ -43,13 +70,13 @@ async def help_command(message: Message):
     await message.answer(
         "📋 Мои команды:\n"
         "/start - Начало работы с ботом\n"
-        "/help - Описание возможностей\n"
+        "/help - Список возможностей\n"
+        "/links - Ссылки на ресурсы\n"
+        "/dynamic - Динамические кнопки\n"
         "📷 Отправьте фото, чтобы я сохранил его в папке img\n"
         "🗣 Используйте команду /voice <текст> для создания голосового сообщения\n"
-        "🌍 Используйте команду /translate <текст> для перевода на английский язык\n"
-        "🎤 Используйте команду /send_voice для получения голосового сообщения"
+        "🌍 Используйте команду /translate <текст> для перевода на английский язык"
     )
-
 
 # Обработка фотографий
 @dp.message(F.photo)
@@ -62,7 +89,6 @@ async def save_photo(message: Message):
     await bot.download_file(file_path.file_path, destination)
 
     await message.answer("Фото сохранено в папке 'img'!")
-
 
 # Генерация голосового сообщения из текста
 @dp.message(Command("voice"))
@@ -84,7 +110,6 @@ async def create_voice(message: Message):
     # Удаляем временный файл
     os.remove(audio_path)
 
-
 # Перевод текста на английский язык
 @dp.message(Command("translate"))
 async def translate_text(message: Message):
@@ -96,31 +121,10 @@ async def translate_text(message: Message):
     translation = translator.translate(args, src='auto', dest='en')
     await message.answer(f"Перевод:\n{translation.text}")
 
-
-# Новая команда для отправки голосового сообщения
-@dp.message(Command("send_voice"))
-async def send_voice(message: Message):
-    text_to_speak = "Привет, я отправляю тебе голосовое сообщение!"
-
-    # Генерация голосового сообщения
-    tts = gTTS(text=text_to_speak, lang='ru')
-    audio_path = "hello_message.ogg"
-    tts.save(audio_path)
-
-    # Отправка голосового сообщения
-    voice_file = FSInputFile(audio_path)
-    await message.answer_voice(voice_file)
-
-    # Удаление временного файла
-    os.remove(audio_path)
-
-
 # Главная асинхронная функция запуска бота
 async def main():
-    # Удаляем старые обновления и запускаем диспетчер
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
